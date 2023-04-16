@@ -11,8 +11,33 @@ pub struct Message<Payload> {
 }
 
 impl<Payload> Message<Payload> {
-    pub fn into_reply(self, id: Option<&mut usize>) -> Self {
-        Self {
+    pub fn send(&self, output: &mut impl Write) -> anyhow::Result<()>
+    where
+        Payload: Serialize,
+    {
+        serde_json::to_writer(&mut *output, self).context("serialize response message")?;
+        output.write_all(b"\n").context("write trailing newline")?;
+        Ok(())
+    }
+
+    pub fn split(self) -> (Message<()>, Payload) {
+        let message = Message {
+            src: self.src,
+            dst: self.dst,
+            body: Body {
+                id: self.body.id,
+                in_reply_to: self.body.in_reply_to,
+                payload: (),
+            },
+        };
+
+        (message, self.body.payload)
+    }
+}
+
+impl Message<()> {
+    pub fn into_reply<Payload>(self, id: Option<&mut usize>, payload: Payload) -> Message<Payload> {
+        Message {
             src: self.dst,
             dst: self.src,
             body: Body {
@@ -22,18 +47,9 @@ impl<Payload> Message<Payload> {
                     mid
                 }),
                 in_reply_to: self.body.id,
-                payload: self.body.payload,
+                payload,
             },
         }
-    }
-
-    pub fn send(&self, output: &mut impl Write) -> anyhow::Result<()>
-    where
-        Payload: Serialize,
-    {
-        serde_json::to_writer(&mut *output, self).context("serialize response message")?;
-        output.write_all(b"\n").context("write trailing newline")?;
-        Ok(())
     }
 }
 

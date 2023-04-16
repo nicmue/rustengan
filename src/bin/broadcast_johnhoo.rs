@@ -118,32 +118,42 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
                 }
             },
             Event::Message(input) => {
-                let mut reply = input.into_reply(Some(&mut self.msg_id));
-                match reply.body.payload {
+                let (input, payload) = input.split();
+                match payload {
                     Payload::Gossip { seen } => {
                         self.known
-                            .get_mut(&reply.dst)
+                            .get_mut(&input.src)
                             .expect("got gossip from unknown node")
                             .extend(seen.iter().copied());
                         self.messages.extend(seen);
                     }
                     Payload::Broadcast { message } => {
                         self.messages.insert(message);
-                        reply.body.payload = Payload::BroadcastOk;
-                        reply.send(&mut *output).context("reply to broadcast")?;
+
+                        input
+                            .into_reply(Some(&mut self.msg_id), Payload::BroadcastOk)
+                            .send(&mut *output)
+                            .context("reply to broadcast")?;
                     }
                     Payload::Read => {
-                        reply.body.payload = Payload::ReadOk {
-                            messages: self.messages.clone(),
-                        };
-                        reply.send(&mut *output).context("reply to read")?;
+                        input
+                            .into_reply(
+                                Some(&mut self.msg_id),
+                                Payload::ReadOk {
+                                    messages: self.messages.clone(),
+                                },
+                            )
+                            .send(&mut *output)
+                            .context("reply to read")?;
                     }
                     Payload::Topology { mut topology } => {
                         self.neighborhood = topology
                             .remove(&self.node)
                             .unwrap_or_else(|| panic!("no topology given for node {}", self.node));
-                        reply.body.payload = Payload::TopologyOk;
-                        reply.send(&mut *output).context("reply to topology")?;
+                        input
+                            .into_reply(Some(&mut self.msg_id), Payload::TopologyOk)
+                            .send(&mut *output)
+                            .context("reply to topology")?;
                     }
                     Payload::BroadcastOk | Payload::ReadOk { .. } | Payload::TopologyOk => {}
                 }

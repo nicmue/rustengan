@@ -2,7 +2,7 @@ use rustengan::*;
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::io::{StdoutLock, Write};
+use std::io::StdoutLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -31,13 +31,13 @@ impl Node<(), Payload> for EchoNode {
             panic!("got injected event when there's no event injection");
         };
 
-        let mut reply = input.into_reply(Some(&mut self.msg_id));
-        match reply.body.payload {
+        let (input, payload) = input.split();
+        match payload {
             Payload::Echo { echo } => {
-                reply.body.payload = Payload::EchoOk { echo };
-                serde_json::to_writer(&mut *output, &reply)
-                    .context("serialize response to init")?;
-                output.write_all(b"\n").context("write trailing newline")?;
+                input
+                    .into_reply(Some(&mut self.msg_id), Payload::EchoOk { echo })
+                    .send(&mut *output)
+                    .context("reply to echo")?;
             }
             Payload::EchoOk { .. } => {}
         }

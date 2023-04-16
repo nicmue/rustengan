@@ -1,8 +1,8 @@
+use anyhow::Context;
 use rustengan::*;
 
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::io::{StdoutLock, Write};
+use std::io::StdoutLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -38,14 +38,14 @@ impl Node<(), Payload> for UniqueNode {
             panic!("got injected event when there's no event injection");
         };
 
-        let mut reply = input.into_reply(Some(&mut self.msg_id));
-        match reply.body.payload {
+        let (input, payload) = input.split();
+        match payload {
             Payload::Generate => {
                 let guid = format!("{}-{}", self.node, self.msg_id);
-                reply.body.payload = Payload::GenerateOk { guid };
-                serde_json::to_writer(&mut *output, &reply)
-                    .context("serialize response to generate")?;
-                output.write_all(b"\n").context("write trailing newline")?;
+                input
+                    .into_reply(Some(&mut self.msg_id), Payload::GenerateOk { guid })
+                    .send(&mut *output)
+                    .context("reply to generate")?;
             }
             Payload::GenerateOk { .. } => {}
         }
