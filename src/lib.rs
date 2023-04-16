@@ -70,6 +70,7 @@ pub struct Init {
 pub trait Node<S, Payload, InjectedPayload = ()> {
     fn from_init(
         state: S,
+        msg_id: usize,
         init: Init,
         inject: std::sync::mpsc::Sender<Event<Payload, InjectedPayload>>,
     ) -> anyhow::Result<Self>
@@ -105,22 +106,26 @@ where
     let InitPayload::Init(init) = init_msg.body.payload else {
         panic!("first message should be init");
     };
-    let mut node: N =
-        Node::from_init(init_state, init, tx.clone()).context("node initilization failed")?;
 
+    let mut msg_id = 0;
     let reply = Message {
         src: init_msg.dst,
         dst: init_msg.src,
         body: Body {
-            id: Some(0),
+            id: Some(msg_id),
             in_reply_to: init_msg.body.id,
             payload: InitPayload::InitOk,
         },
     };
     serde_json::to_writer(&mut stdout, &reply).context("serialize response to init")?;
     stdout.write_all(b"\n").context("write trailing newline")?;
+    msg_id += 1;
 
+    // drop stdin to pick it up in the thread again
     drop(stdin);
+
+    let mut node: N = Node::from_init(init_state, msg_id, init, tx.clone())
+        .context("node initilization failed")?;
     let jh = std::thread::spawn(move || {
         let stdin = std::io::stdin().lock();
         for line in stdin.lines() {

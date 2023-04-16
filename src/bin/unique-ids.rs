@@ -17,18 +17,19 @@ enum Payload {
 
 struct UniqueNode {
     node: String,
-    id: usize,
+    msg_id: usize,
 }
 
 impl Node<(), Payload> for UniqueNode {
     fn from_init(
         _state: (),
+        msg_id: usize,
         init: Init,
         _tx: std::sync::mpsc::Sender<Event<Payload>>,
     ) -> anyhow::Result<Self> {
         Ok(UniqueNode {
             node: init.node_id,
-            id: 1,
+            msg_id,
         })
     }
 
@@ -37,10 +38,10 @@ impl Node<(), Payload> for UniqueNode {
             panic!("got injected event when there's no event injection");
         };
 
-        let mut reply = input.into_reply(Some(&mut self.id));
+        let mut reply = input.into_reply(Some(&mut self.msg_id));
         match reply.body.payload {
             Payload::Generate => {
-                let guid = format!("{}-{}", self.node, self.id);
+                let guid = format!("{}-{}", self.node, self.msg_id);
                 reply.body.payload = Payload::GenerateOk { guid };
                 serde_json::to_writer(&mut *output, &reply)
                     .context("serialize response to generate")?;

@@ -13,16 +13,17 @@ enum Payload {
 }
 
 struct EchoNode {
-    id: usize,
+    msg_id: usize,
 }
 
 impl Node<(), Payload> for EchoNode {
     fn from_init(
         _state: (),
+        msg_id: usize,
         _init: Init,
         _tx: std::sync::mpsc::Sender<Event<Payload>>,
     ) -> anyhow::Result<Self> {
-        Ok(EchoNode { id: 1 })
+        Ok(EchoNode { msg_id })
     }
 
     fn step(&mut self, input: Event<Payload>, output: &mut StdoutLock) -> anyhow::Result<()> {
@@ -30,7 +31,7 @@ impl Node<(), Payload> for EchoNode {
             panic!("got injected event when there's no event injection");
         };
 
-        let mut reply = input.into_reply(Some(&mut self.id));
+        let mut reply = input.into_reply(Some(&mut self.msg_id));
         match reply.body.payload {
             Payload::Echo { echo } => {
                 reply.body.payload = Payload::EchoOk { echo };

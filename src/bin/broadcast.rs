@@ -5,7 +5,7 @@ use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    io::{StdoutLock, Write},
+    io::StdoutLock,
     time::Duration,
 };
 
@@ -36,7 +36,7 @@ enum InjectedPayload {
 
 struct BroadcastNode {
     node: String,
-    id: usize,
+    msg_id: usize,
     messages: HashSet<usize>,
     known: HashMap<String, HashSet<usize>>,
     neighborhood: Vec<String>,
@@ -45,6 +45,7 @@ struct BroadcastNode {
 impl Node<(), Payload, InjectedPayload> for BroadcastNode {
     fn from_init(
         _state: (),
+        msg_id: usize,
         init: Init,
         tx: std::sync::mpsc::Sender<Event<Payload, InjectedPayload>>,
     ) -> anyhow::Result<Self> {
@@ -61,7 +62,7 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
 
         Ok(Self {
             node: init.node_id,
-            id: 1,
+            msg_id,
             messages: HashSet::new(),
             known: init
                 .node_ids
@@ -117,7 +118,7 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
                 }
             },
             Event::Message(input) => {
-                let mut reply = input.into_reply(Some(&mut self.id));
+                let mut reply = input.into_reply(Some(&mut self.msg_id));
                 match reply.body.payload {
                     Payload::Gossip { seen } => {
                         self.known
