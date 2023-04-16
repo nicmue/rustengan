@@ -28,7 +28,9 @@ enum Payload {
     Gossip {
         messages: HashSet<usize>,
     },
-    GossipOk,
+    GossipOk {
+        messages: HashSet<usize>,
+    },
 }
 
 enum InjectedPayload {
@@ -37,7 +39,6 @@ enum InjectedPayload {
 
 struct BroadcastNode {
     node: String,
-    nodes: Vec<String>,
     msg_id: usize,
     messages: HashSet<usize>,
     known: HashMap<String, HashSet<usize>>,
@@ -46,34 +47,6 @@ struct BroadcastNode {
 }
 
 impl BroadcastNode {
-    fn broadcast_to_all(&mut self, except: String, message: usize, output: &mut StdoutLock) {
-        let neighbourhood: Vec<String> = self
-            .neighborhood
-            .iter()
-            .cloned()
-            .filter(|n| n != &except)
-            .collect();
-
-        for n in neighbourhood {
-            self.broadcast_to(n, message, output);
-        }
-    }
-
-    fn broadcast_to(&mut self, neighbour: String, message: usize, output: &mut StdoutLock) {
-        // we dont error on sending here because the regular
-        // gossip message will repair broken state over time
-        let _ = Message {
-            src: self.node.clone(),
-            dst: neighbour.clone(),
-            body: Body {
-                id: None,
-                in_reply_to: None,
-                payload: Payload::Broadcast { message },
-            },
-        }
-        .send(output);
-    }
-
     fn gossip_to_all(&mut self, output: &mut StdoutLock) {
         let neighbourhood: Vec<String> = self.neighborhood.iter().cloned().collect();
         for n in neighbourhood {
@@ -129,7 +102,7 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
             // generate gossip events
             // TODO: handle EOF signal
             loop {
-                std::thread::sleep(Duration::from_millis(500));
+                std::thread::sleep(Duration::from_millis(100));
                 if let Err(_) = tx.send(Event::Injected(InjectedPayload::Gossip)) {
                     break;
                 }
@@ -138,7 +111,6 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
 
         Ok(Self {
             node: init.node_id,
-            nodes: init.node_ids,
             msg_id,
             known: HashMap::new(),
             messages: HashSet::new(),
@@ -161,17 +133,7 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
                 let (input, payload) = input.split();
                 match payload {
                     Payload::Broadcast { message } => {
-                        if self.messages.insert(message) {
-                            self.broadcast_to_all(input.src.clone(), message, output);
-
-                            // if we receive a broadacst from a node we know
-                            // it did not come from the outside world and we dont
-                            // need to send a broadcast_ok
-                            if self.nodes.contains(&input.src) {
-                                return Ok(());
-                            }
-                        }
-
+                        self.messages.insert(message);
                         input
                             .into_reply(Some(&mut self.msg_id), Payload::BroadcastOk)
                             .send(&mut *output)
@@ -210,12 +172,26 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
                             .extend(messages.iter().copied());
                         self.messages.extend(messages);
 
+                        let known_to_n = &self.known[&input.src];
+                        let messages: HashSet<_> = self
+                            .messages
+                            .iter()
+                            .copied()
+                            .filter(|m| !known_to_n.contains(m))
+                            .collect();
+
                         input
-                            .into_reply(Some(&mut self.msg_id), Payload::GossipOk)
+                            .into_reply(Some(&mut self.msg_id), Payload::GossipOk { messages })
                             .send(&mut *output)
                             .context("reply to gossip")?;
                     }
-                    Payload::GossipOk => {
+                    Payload::GossipOk { messages } => {
+                        self.known
+                            .get_mut(&input.src)
+                            .expect("got gossip_ok from unknown node")
+                            .extend(messages.iter().copied());
+                        self.messages.extend(messages);
+
                         let Entry::Occupied(entry) = self.gossip_in_flight.entry(input.src.clone()) else {
                             return Ok(());
                         };
